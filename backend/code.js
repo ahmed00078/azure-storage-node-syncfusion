@@ -88,7 +88,9 @@ async function deleteFoldersAndFiles(req, res) {
         let totalFiles = [];
         for (let i = 0; i < req.body.data.length; i++) {
             if (req.body.data[i].isFile) {
-                const blobClient = containerClient.getBlobClient(directoryName + req.body.path + req.body.names[i]);
+                // Remove the leading '/' from the path if it exists
+                const path = req.body.path.startsWith('/') ? req.body.path.slice(1) : req.body.path;
+                const blobClient = containerClient.getBlobClient(directoryName + path + req.body.names[i]);
                 const properties = await blobClient.getProperties()
                 const fileData = {
                     dateCreated: properties.createdOn,
@@ -140,13 +142,15 @@ async function deleteFoldersAndFiles(req, res) {
 
 async function getDetails(req, res) {
     try {
+        // Remove the leading '/' from the path if it exists
+        const path = req.body.path.startsWith('/') ? req.body.path.slice(1) : req.body.path;
         //For empty details
         if (req.body.names.length == 0 && req.body.data != 0) {
             let lastUpdated = null;
             //Get the folder name from the data
             req.body.names = req.body.data.map(item => item.name);
             let size = 0;
-            for await (const blob of containerClient.listBlobsFlat({ prefix: directoryName + req.body.path })) {
+            for await (const blob of containerClient.listBlobsFlat({ prefix: directoryName + path })) {
                 size += blob.properties.contentLength;
                 if (lastUpdated === null || lastUpdated < blob.properties.lastModified) {
                     lastUpdated = blob.properties.lastModified;
@@ -154,7 +158,7 @@ async function getDetails(req, res) {
             }
             const fileDetails = {
                 name: req.body.names[0],
-                location: directoryName + req.body.path,
+                location: directoryName + path,
                 isFile: false,
                 size: await byteConversion(size),
                 created: null,
@@ -176,7 +180,7 @@ async function getDetails(req, res) {
             let modified;
             for (const item of req.body.names) {
                 if (req.body.data[0].isFile) {
-                    const blobClient = containerClient.getBlobClient(directoryName + req.body.path + item);
+                    const blobClient = containerClient.getBlobClient(directoryName + path + item);
                     const properties = await blobClient.getProperties();
                     names.push(basename(blobClient.name));
                     // Replace the blobClient.name to get the common location for more thatn one files
@@ -191,7 +195,7 @@ async function getDetails(req, res) {
                     size += properties.contentLength;
                 } else {
                     let lastUpdated = null;
-                    for await (const blob of containerClient.listBlobsFlat({ prefix: directoryName + req.body.path + item + endSlash })) {
+                    for await (const blob of containerClient.listBlobsFlat({ prefix: directoryName + path + item + endSlash })) {
                         size += (blob.properties.contentLength);
                         if (lastUpdated === null || lastUpdated < blob.properties.lastModified) {
                             lastUpdated = blob.properties.lastModified;
@@ -199,9 +203,9 @@ async function getDetails(req, res) {
                     }
                     names.push(item);
                     if (req.body.names.length > 1) {
-                        location = (directoryName + req.body.path + item).replace("/" + item, "");
+                        location = (directoryName + path + item).replace("/" + item, "");
                     } else {
-                        location = directoryName + req.body.path + item;
+                        location = directoryName + path + item;
                         modified = lastUpdated;
                         isFile = false;
                     }
@@ -235,9 +239,11 @@ async function getDetails(req, res) {
 }
 
 async function createFolder(req, res) {
+    // Remove the leading '/' from the path if it exists
+    const path = req.body.path.startsWith('/') ? req.body.path.slice(1) : req.body.path;
     var response;
     var isExist = false;
-    for await (const { } of containerClient.listBlobsFlat({ prefix: directoryName + req.body.path + req.body.name + endSlash })) {
+    for await (const { } of containerClient.listBlobsFlat({ prefix: directoryName + path + req.body.name + endSlash })) {
         isExist = true;
         break;
     }
@@ -250,7 +256,7 @@ async function createFolder(req, res) {
         response = { cwd: null, files: null, details: null, error: errorMsg };
     } else {
         // Create a new folder with about.txt file
-        const fileName = directoryName + req.body.path + req.body.name + "/about.txt";
+        const fileName = directoryName + path + req.body.name + "/about.txt";
         const blockBlobClient = containerClient.getBlockBlobClient(fileName);
         const fileContent = "This is the content of the about.txt file.";
         // Upload the about.txt to new folder.
@@ -276,12 +282,14 @@ async function createFolder(req, res) {
 }
 
 async function rename(req, res) {
+    // Remove the leading '/' from the path if it exists
+    const path = req.body.path.startsWith('/') ? req.body.path.slice(1) : req.body.path;
     let response = {};
     var errorMsg;
     if (req.body.data[0].isFile) {
 
-        const sourceBlobClient = containerClient.getBlockBlobClient(directoryName + req.body.path + req.body.name);
-        const targetBlobClient = containerClient.getBlockBlobClient(directoryName + req.body.path + req.body.newName);
+        const sourceBlobClient = containerClient.getBlockBlobClient(directoryName + path + req.body.name);
+        const targetBlobClient = containerClient.getBlockBlobClient(directoryName + path + req.body.newName);
         if (!await targetBlobClient.exists()) {
             // Copy the source file to the target file
             await targetBlobClient.beginCopyFromURL(sourceBlobClient.url);
@@ -297,7 +305,7 @@ async function rename(req, res) {
                     hasChild: false,
                     isFile: true,
                     type: basename(targetBlobClient.name),
-                    filterPath: req.body.path
+                    filterPath: path
                 }
             ];
 
@@ -318,7 +326,7 @@ async function rename(req, res) {
     else {
         var isExist = false;
         // Check the existance of directory
-        for await (const { } of containerClient.listBlobsFlat({ prefix: directoryName + req.body.path + req.body.newName + endSlash })) {
+        for await (const { } of containerClient.listBlobsFlat({ prefix: directoryName + path + req.body.newName + endSlash })) {
             isExist = true;
             break;
         }
@@ -332,8 +340,8 @@ async function rename(req, res) {
             res.statusMessage = "File Already Exists.";
         }
         else {
-            for await (const blob of containerClient.listBlobsFlat({ prefix: directoryName + req.body.path + req.body.name + endSlash })) {
-                const targetPath = blob.name.replace((directoryName + req.body.path + req.body.name), (directoryName + req.body.path + req.body.newName));
+            for await (const blob of containerClient.listBlobsFlat({ prefix: directoryName + path + req.body.name + endSlash })) {
+                const targetPath = blob.name.replace((directoryName + path + req.body.name), (directoryName + path + req.body.newName));
                 const sourceBlobClient = containerClient.getBlockBlobClient(blob.name);
                 const targetBlobClient = containerClient.getBlockBlobClient(targetPath);
                 await targetBlobClient.beginCopyFromURL(sourceBlobClient.url);
@@ -348,7 +356,7 @@ async function rename(req, res) {
                     hasChild: false,
                     isFile: false,
                     type: "Directory",
-                    filterPath: req.body.path
+                    filterPath: path
                 }
             ];
             response = { cwd: null, files: files, error: null, details: null };
@@ -360,6 +368,9 @@ async function rename(req, res) {
 }
 
 async function copyAndMoveFiles(req, res) {
+    // Remove the leading '/' from the path if it exists
+    const path = req.body.path.startsWith('/') ? req.body.path.slice(1) : req.body.path;
+    const targetPath = req.body.targetPath.startsWith('/') ? req.body.targetPath.slice(1) : req.body.targetPath;
     const files = [];
     let response = {};
     var errorMsg;
@@ -373,7 +384,7 @@ async function copyAndMoveFiles(req, res) {
                 // Check the existance of the target directory, using the blob is available or not in that path.
                 // Here the prefix is "Files/Document/". that end '/' added for get the exact directory.
                 // For example If this '/' is not added it wil take the "Files/Document" and "Files/Documents". 
-                for await (const { } of containerClient.listBlobsFlat({ prefix: directoryName + req.body.targetPath + item.name + endSlash })) {
+                for await (const { } of containerClient.listBlobsFlat({ prefix: directoryName + targetPath + item.name + endSlash })) {
                     isExist = true;
                     break;
                 }
@@ -389,12 +400,12 @@ async function copyAndMoveFiles(req, res) {
             }
             if (!isExist) {
                 var newDirectoryName = item.name;
-                for await (const blob of containerClient.listBlobsFlat({ prefix: directoryName + req.body.path + item.name + endSlash })) {
+                for await (const blob of containerClient.listBlobsFlat({ prefix: directoryName + path + item.name + endSlash })) {
                     // Here replace the source path with empty string. if source path is "Files/Pictures/tom.png" the targetPath is "tom.png".
-                    // Here "directoryName = Files" and "req.body.path = /Pictures/".
-                    const targetBlob = blob.name.replace((directoryName + req.body.path), "");
+                    // Here "directoryName = Files" and "path = /Pictures/".
+                    const targetBlob = blob.name.replace((directoryName + path), "");
                     const sourceBlobClient = containerClient.getBlockBlobClient(blob.name);
-                    var destinationBlobClient = containerClient.getBlockBlobClient(directoryName + req.body.targetPath + targetBlob);
+                    var destinationBlobClient = containerClient.getBlockBlobClient(directoryName + targetPath + targetBlob);
                     if (isRename) {
                         // Change the target path if get rename request.
                         var rootTatgetPath = targetBlob.substring(0, targetBlob.indexOf("/"));
@@ -403,7 +414,7 @@ async function copyAndMoveFiles(req, res) {
                         var counter = 1;
                         while (true) {
                             newTargetPath = rootTatgetPath + "(" + counter + ")" + targetSubPath;
-                            destinationBlobClient = containerClient.getBlockBlobClient(directoryName + req.body.targetPath + newTargetPath);
+                            destinationBlobClient = containerClient.getBlockBlobClient(directoryName + targetPath + newTargetPath);
                             if (!await destinationBlobClient.exists()) {
                                 newDirectoryName = item.name + "(" + counter + ")";
                                 await destinationBlobClient.beginCopyFromURL(sourceBlobClient.url);
@@ -426,15 +437,15 @@ async function copyAndMoveFiles(req, res) {
                     hasChild: false,
                     isFile: false,
                     type: item.type,
-                    filterPath: req.body.targetPath
+                    filterPath: targetPath
                 };
                 files.push(data)
             }
         }
         else {
             var isExist = false;
-            const sourceBlobClient = containerClient.getBlockBlobClient(directoryName + req.body.path + item.name);
-            var destinationBlobClient = containerClient.getBlockBlobClient(directoryName + req.body.targetPath + item.name);
+            const sourceBlobClient = containerClient.getBlockBlobClient(directoryName + path + item.name);
+            var destinationBlobClient = containerClient.getBlockBlobClient(directoryName + targetPath + item.name);
             if (!isRename) {
                 if (await destinationBlobClient.exists()) {
                     isExist = true
@@ -455,7 +466,7 @@ async function copyAndMoveFiles(req, res) {
                     var counter = 1;
                     while (true) {
                         newFileName = fileNameWithoutExtension + "(" + counter + ")" + fileExtension;
-                        destinationBlobClient = containerClient.getBlockBlobClient(directoryName + req.body.targetPath + newFileName);
+                        destinationBlobClient = containerClient.getBlockBlobClient(directoryName + targetPath + newFileName);
                         if (!await destinationBlobClient.exists()) {
                             await destinationBlobClient.beginCopyFromURL(sourceBlobClient.url);
                             break;
@@ -480,7 +491,7 @@ async function copyAndMoveFiles(req, res) {
                     hasChild: false,
                     isFile: true,
                     type: extname(destinationBlobClient.name),
-                    filterPath: req.body.targetPath
+                    filterPath: targetPath
                 };
                 files.push(data)
             }
@@ -494,13 +505,15 @@ async function copyAndMoveFiles(req, res) {
 
 
 async function searchFiles(req, res) {
-    var currentPath = req.body.path;
+    // Remove the leading '/' from the path if it exists
+    const path = req.body.path.startsWith('/') ? req.body.path.slice(1) : req.body.path;
+    var currentPath = req.body.path.startsWith('/') ? req.body.path.slice(1) : req.body.path;
     console.log(req.body.searchString);
     var searchString = req.body.searchString.replace(/\*/g, "");
 
     const directories = [];
 
-    await searchInFolder(directoryName + currentPath, directories);
+    await searchInFolder(directoryName + path, directories);
     // Helper function to search in folders
     async function searchInFolder(prefix, directory) {
         for await (const item of containerClient.listBlobsByHierarchy("/", { prefix })) {
@@ -605,6 +618,7 @@ app.post('/', async function (req, res) {
         res.json(response); // No need to stringify when using res.json
     }
 });
+
 
 
 
